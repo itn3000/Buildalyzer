@@ -7,7 +7,9 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
 using System.Linq;
 using Microsoft.CodeAnalysis.CSharp;
+using CS = Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.VisualBasic;
+using VB = Microsoft.CodeAnalysis.VisualBasic;
 
 namespace Buildalyzer.Workspaces
 {
@@ -110,7 +112,8 @@ namespace Buildalyzer.Workspaces
                 documents: GetDocuments(analyzer, projectId),
                 projectReferences: GetExistingProjectReferences(analyzer, workspace),
                 metadataReferences: GetMetadataReferences(analyzer),
-                compilationOptions: CreateCompilationOptions(analyzer.Project, languageName));
+                compilationOptions: CreateCompilationOptions(analyzer.Project, languageName),
+                parseOptions: CreateParseOptions(analyzer.Project, languageName));
             return projectInfo;
         }
 
@@ -192,6 +195,83 @@ namespace Buildalyzer.Workspaces
                     return LanguageNames.VisualBasic;
                 default:
                     throw new InvalidOperationException("Could not determine supported language from project path");
+            }
+        }
+
+        static readonly Dictionary<string, CS.LanguageVersion> CSLangVersionMap = Enum.GetValues(typeof(CS.LanguageVersion))
+            .Cast<CS.LanguageVersion>()
+            .ToDictionary(x => x.ToDisplayString().ToLower(), x => x)
+            ;
+        static readonly Dictionary<string, VB.LanguageVersion> VBLangVersionMap = Enum.GetValues(typeof(VB.LanguageVersion))
+            .Cast<VB.LanguageVersion>()
+            .ToDictionary(x => x.ToDisplayString().ToLower(), x => x)
+            ;
+        static CS.LanguageVersion ConvertToCSLanguageVersion(string versionString)
+        {
+            if(string.IsNullOrEmpty(versionString))
+            {
+                return CS.LanguageVersion.Default;
+            }
+            else
+            {
+                versionString = versionString.ToLower();
+                if(CSLangVersionMap.TryGetValue(versionString, out var ret))
+                {
+                    return ret;
+                }
+                else
+                {
+                    return CS.LanguageVersion.Default;
+                }
+            }
+        }
+        static VB.LanguageVersion ConvertToVBLanguageVersion(string versionString)
+        {
+            if(string.IsNullOrEmpty(versionString))
+            {
+                return VB.LanguageVersion.Default;
+            }
+            else
+            {
+                versionString = versionString.ToLower();
+                if(VBLangVersionMap.TryGetValue(versionString, out var ret))
+                {
+                    return ret;
+                }
+                else
+                {
+                    return VB.LanguageVersion.Default;
+                }
+            }
+        }
+
+        private static ParseOptions CreateParseOptions(Microsoft.Build.Evaluation.Project project, string languageName)
+        {
+            var features = project.GetPropertyValue("Features").Split(';').Select(x => x.Split(new []{'='}, 2))
+                .Where(x => x.Length > 0)
+                .ToDictionary(x => x[0], x => x.Length == 1 ? "true" : x[1]);
+            if(languageName == LanguageNames.CSharp)
+            {
+                return CSharpParseOptions.Default.WithFeatures(features)
+                    .WithPreprocessorSymbols(project.GetPropertyValue("DefineConstants").Split(';'))
+                    .WithLanguageVersion(ConvertToCSLanguageVersion(project.GetPropertyValue("LangVersion")))
+                    ;
+            }
+            else if(languageName == LanguageNames.VisualBasic)
+            {
+                var defineConstants = project.GetPropertyValue("DefineConstants").Split(';')
+                    .Select(x => x.Split(new []{'='}))
+                    .Where(x => x.Length > 0)
+                    .ToDictionary(x => x[0], x => (object)(x.Length == 1 ? "true" : x[1]))
+                    ;
+                return VisualBasicParseOptions.Default.WithFeatures(features)
+                    .WithPreprocessorSymbols(defineConstants)
+                    .WithLanguageVersion(ConvertToVBLanguageVersion(project.GetPropertyValue("LangVersion")))
+                    ;
+            }
+            else
+            {
+                return null;
             }
         }
     }
