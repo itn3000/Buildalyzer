@@ -118,7 +118,9 @@ namespace Buildalyzer.Workspaces
                 documents: GetDocuments(analyzerResult, projectId),
                 projectReferences: GetExistingProjectReferences(analyzerResult, workspace),
                 metadataReferences: GetMetadataReferences(analyzerResult),
-                compilationOptions: CreateCompilationOptions(analyzerResult, languageName));
+                compilationOptions: CreateCompilationOptions(analyzerResult, languageName),
+                parseOptions: CreateParseOptions(analyzerResult, languageName)
+                );
             return projectInfo;
         }
 
@@ -155,6 +157,74 @@ namespace Buildalyzer.Workspaces
             }
 
             return null;
+        }
+
+        private static Microsoft.CodeAnalysis.CSharp.LanguageVersion ParseLanguageVersion(string str)
+        {
+            if(str != null)
+            {
+                if("latest".Equals(str, StringComparison.OrdinalIgnoreCase))
+                {
+                    return Microsoft.CodeAnalysis.CSharp.LanguageVersion.Latest;
+                }
+                if(Version.TryParse(str, out Version version))
+                {
+                    if(version.Major == 7)
+                    {
+                        if(version.Minor > 0)
+                        {
+                            return (Microsoft.CodeAnalysis.CSharp.LanguageVersion)(version.Major * 100 + version.Minor);
+                        }
+                        else
+                        {
+                            return Microsoft.CodeAnalysis.CSharp.LanguageVersion.CSharp7;
+                        }
+                    }
+                    else
+                    {
+                        return (Microsoft.CodeAnalysis.CSharp.LanguageVersion)(version.Major * 100 + version.Minor);
+                    }
+                }
+            }
+            return Microsoft.CodeAnalysis.CSharp.LanguageVersion.Default;
+        }
+
+        private static ParseOptions CreateParseOptions(AnalyzerResult analyzerResult, string languageName)
+        {
+            if(languageName == LanguageNames.CSharp)
+            {
+                var constants = analyzerResult.GetProperty("DefineConstants");
+                var langverprop = analyzerResult.GetProperty("LangVersion");
+                var ret = new CSharpParseOptions().WithLanguageVersion(ParseLanguageVersion(langverprop));
+                if(constants != null)
+                {
+                    return ret.WithPreprocessorSymbols(constants.Split(';'));
+                }
+                else
+                {
+                    return ret;
+                }
+            }
+            else if(languageName == LanguageNames.VisualBasic)
+            {
+                var constants = analyzerResult.GetProperty("DefineConstants");
+                var ret = new VisualBasicParseOptions();
+                if(constants != null)
+                {
+                    return ret.WithPreprocessorSymbols(constants.Split(';')
+                        .Select(kv => kv.Split(new char[]{'='}, 2))
+                        .Select(kv => new KeyValuePair<string, object>(kv[0].Trim(), kv[1].Trim())))
+                        ;
+                }
+                else
+                {
+                    return ret;
+                }
+            }
+            else
+            {
+                return null;
+            }
         }
 
         private static IEnumerable<ProjectReference> GetExistingProjectReferences(AnalyzerResult analyzerResult, Workspace workspace) =>
