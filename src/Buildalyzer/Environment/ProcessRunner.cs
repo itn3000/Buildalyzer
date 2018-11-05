@@ -75,9 +75,21 @@ namespace Buildalyzer.Environment
 
         public void Dispose()
         {
+            if(Process.HasExited)
+            {
+                // Flush asynchronous output buffer
+                // see "Remarks" section in https://docs.microsoft.com/en-us/dotnet/api/system.diagnostics.process.outputdatareceived?view=netframework-4.7.2 
+                Process.WaitForExit();
+            }
             Process.Exited -= ProcessExited;
             if (_logger != null || _output != null)
             {
+                if(!Process.HasExited)
+                {
+                    // Flush asynchronous output buffer
+                    Process.CancelOutputRead();
+                    Process.WaitForExit(1000);
+                }
                 Process.OutputDataReceived -= DataReceived;
             }
             Process.Close();
